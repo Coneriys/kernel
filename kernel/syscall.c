@@ -87,6 +87,7 @@ void* syscall_malloc(size_t size) {
     if (size == 0 || size > 1024 * 1024) {
         return NULL;
     }
+    
     return kmalloc(size);
 }
 
