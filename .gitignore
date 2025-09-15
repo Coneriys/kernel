@@ -1,0 +1,61 @@
+# Build artifacts
+*.o
+*.bin
+*.elf
+byteos.bin
+
+# Generated files
+kernel/hello_program.c
+tools/embed
+
+# Object files in all directories
+boot/*.o
+kernel/*.o
+examples/*.o
+apps/*.o
+lib/freetype/*.o
+userland/*.o
+
+# Binary files
+userland/*.bin
+userland/*.elf
+
+# Temporary files
+.DS_Store
+*.tmp
+*.temp
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Debug files
+*.log
+core
+
+# Mac specific
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
