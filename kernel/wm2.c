@@ -1,8 +1,14 @@
 #include "../include/wm2.h"
 #include "../include/memory.h"
 
+// Global reference for desktop rendering
+wm2_context_t* global_wm = NULL;
+
 static void wm2_taskbar_event_handler(gui2_widget_t* widget, gui2_event_t* event);
 static void wm2_window_event_handler(gui2_widget_t* widget, gui2_event_t* event);
+static void wm2_create_taskbar(wm2_context_t* wm);
+static void wm2_add_taskbar_apps(wm2_context_t* wm);
+static void wm2_render_taskbar(wm2_context_t* wm);
 
 wm2_context_t* wm2_create(uint32_t screen_width, uint32_t screen_height, uint32_t* screen_buffer) {
     wm2_context_t* wm = (wm2_context_t*)kmalloc(sizeof(wm2_context_t));
@@ -33,10 +39,13 @@ wm2_context_t* wm2_create(uint32_t screen_width, uint32_t screen_height, uint32_
         gui2_set_visible(wm->desktop, true);
     }
     
-    // Create taskbar as a special GUI2 window that's always on top
-    wm->taskbar = NULL; // We'll handle taskbar differently for now
+    // Create beautiful dock-style taskbar
+    wm2_create_taskbar(wm);
     
     wm2_set_theme(wm, WM2_THEME_DARK);
+    
+    // Set global reference
+    global_wm = wm;
     
     return wm;
 }
@@ -52,20 +61,24 @@ void wm2_destroy(wm2_context_t* wm) {
         gui2_destroy_context(wm->gui);
     }
     
+    if (global_wm == wm) {
+        global_wm = NULL;
+    }
+    
     kfree(wm);
 }
 
 gui2_window_t* wm2_create_window(wm2_context_t* wm, const char* title, int32_t x, int32_t y, uint32_t width, uint32_t height) {
     if (!wm || !wm->gui) return NULL;
     
-    // Clamp position to screen bounds
-    if (x < 0) x = 50;
-    if (y < 0) y = 50;
+    // Clamp position to screen bounds - make sure titlebar is visible
+    if (x < 0) x = 10;
+    if (y < 30) y = 30;  // Make sure titlebar is below any potential menu bar
     if (x + (int32_t)width > (int32_t)wm->gui->screen_width) {
-        x = wm->gui->screen_width - width - 50;
+        x = wm->gui->screen_width - width - 10;
     }
-    if (y + (int32_t)height > (int32_t)wm->gui->screen_height - 40) {
-        y = wm->gui->screen_height - height - 90; // Account for taskbar
+    if (y + (int32_t)height > (int32_t)wm->gui->screen_height) {
+        y = wm->gui->screen_height - height - 10;
     }
     
     gui2_window_t* window = gui2_create_window(wm->gui, title, x, y, width, height);
@@ -324,17 +337,224 @@ void wm2_render(wm2_context_t* wm) {
     // Use the GUI2 render system which handles everything properly including double buffering
     gui2_render(wm->gui);
     
-    // Taskbar is now rendered as part of GUI2 system, no need to draw it separately
+    // Render taskbar on top of everything with special effects
+    if (wm->taskbar && (wm->taskbar->flags & GUI2_WIDGET_VISIBLE)) {
+        wm2_render_taskbar(wm);
+    }
 }
+
+static void wm2_render_taskbar(wm2_context_t* wm) {
+    if (!wm || !wm->taskbar) return;
+    
+    gui2_context_t* ctx = wm->gui;
+    
+    // Draw dock background with blur effect simulation
+    gui2_rect_t dock_rect = {
+        wm->taskbar->rect.x - 5,
+        wm->taskbar->rect.y - 5, 
+        wm->taskbar->rect.width + 10,
+        wm->taskbar->rect.height + 10
+    };
+    
+    // Draw shadow
+    gui2_draw_rounded_rect(ctx, dock_rect, gui2_make_color(0, 0, 0, 60), 20.0f);
+    
+    // Draw main dock
+    gui2_draw_rounded_rect(ctx, wm->taskbar->rect, wm->taskbar->bg_color, 16.0f);
+    
+    // Render dock icons with hover effects
+    gui2_widget_t* child = wm->taskbar->first_child;
+    while (child) {
+        if (child->flags & GUI2_WIDGET_VISIBLE) {
+            gui2_rect_t icon_rect = {
+                wm->taskbar->rect.x + child->rect.x,
+                wm->taskbar->rect.y + child->rect.y,
+                child->rect.width,
+                child->rect.height
+            };
+            
+            // Draw icon with nice rounded corners
+            gui2_draw_rounded_rect(ctx, icon_rect, child->bg_color, 10.0f);
+            
+            // Add shine effect
+            gui2_color_t shine = gui2_make_color(255, 255, 255, 40);
+            gui2_rect_t shine_rect = {
+                icon_rect.x + 2,
+                icon_rect.y + 2,
+                icon_rect.width - 4,
+                icon_rect.height / 3
+            };
+            gui2_draw_rounded_rect(ctx, shine_rect, shine, 8.0f);
+        }
+        child = child->next_sibling;
+    }
+}
+
+static void wm2_app_icon_event_handler(gui2_widget_t* widget, gui2_event_t* event);
 
 static void wm2_taskbar_event_handler(gui2_widget_t* widget, gui2_event_t* event) {
     (void)widget;
     (void)event;
-    // Handle taskbar events (app launching, etc.)
+    // Main taskbar doesn't handle events, individual app icons do
 }
 
 static void wm2_window_event_handler(gui2_widget_t* widget, gui2_event_t* event) {
     (void)widget;
     (void)event;
     // Handle window widget events
+}
+
+// App creation functions
+static void wm2_create_finder_window(wm2_context_t* wm);
+static void wm2_create_terminal_window(wm2_context_t* wm);
+static void wm2_create_calculator_window(wm2_context_t* wm);
+static void wm2_create_settings_window(wm2_context_t* wm);
+static void wm2_create_trash_window(wm2_context_t* wm);
+
+static void wm2_app_icon_event_handler(gui2_widget_t* widget, gui2_event_t* event) {
+    if (!widget || !event) return;
+    
+    // Get window manager directly from user_data
+    wm2_context_t* wm = (wm2_context_t*)widget->user_data;
+    if (!wm) return;
+    
+    // Get app index from widget ID
+    int app_index = (int)widget->id;
+    
+    // Handle mouse down event
+    if (event->type == GUI2_EVENT_MOUSE_DOWN) {
+        // Create test window based on app index
+        const char* titles[] = {"Finder", "Terminal", "Calculator", "Settings", "Trash"};
+        gui2_color_t colors[] = {
+            gui2_make_color(245, 245, 247, 255), // Finder - light
+            gui2_make_color(40, 44, 52, 255),    // Terminal - dark
+            gui2_make_color(248, 248, 248, 255), // Calculator - light
+            gui2_make_color(250, 250, 250, 255), // Settings - light
+            gui2_make_color(248, 248, 248, 255)  // Trash - light
+        };
+        
+        if (app_index >= 0 && app_index < 5) {
+            gui2_window_t* window = wm2_create_window(wm, titles[app_index], 100 + app_index * 50, 100 + app_index * 50, 400, 300);
+            if (window) {
+                window->root_widget->bg_color = colors[app_index];
+            }
+        }
+    }
+}
+
+static void wm2_create_taskbar(wm2_context_t* wm) {
+    if (!wm || !wm->gui) return;
+    
+    uint32_t taskbar_width = 400;
+    uint32_t taskbar_height = 60;
+    uint32_t taskbar_x = (wm->gui->screen_width - taskbar_width) / 2;
+    uint32_t taskbar_y = wm->gui->screen_height - taskbar_height - 10;
+    
+    // Create taskbar as floating dock
+    wm->taskbar = gui2_create_widget(GUI2_WIDGET_PANEL, wm->desktop);
+    if (wm->taskbar) {
+        gui2_set_rect(wm->taskbar, taskbar_x, taskbar_y, taskbar_width, taskbar_height);
+        wm->taskbar->bg_color = gui2_make_color(40, 40, 45, 200); // Semi-transparent
+        wm->taskbar->border_width = 0;
+        gui2_set_visible(wm->taskbar, true);
+        gui2_set_event_handler(wm->taskbar, wm2_taskbar_event_handler);
+        wm->taskbar->user_data = wm;
+        
+        // Create app icons in taskbar
+        wm2_add_taskbar_apps(wm);
+    }
+}
+
+static void wm2_add_taskbar_apps(wm2_context_t* wm) {
+    if (!wm || !wm->taskbar) return;
+    
+    // App icon data (simple colored squares for now)
+    struct {
+        const char* name;
+        gui2_color_t color;
+    } apps[] = {
+        {"Finder", gui2_make_color(0, 122, 255, 255)},      // Blue
+        {"Terminal", gui2_make_color(50, 50, 55, 255)},     // Dark gray
+        {"Calculator", gui2_make_color(255, 149, 0, 255)},  // Orange
+        {"Settings", gui2_make_color(142, 142, 147, 255)},  // Gray
+        {"Trash", gui2_make_color(255, 59, 48, 255)}        // Red
+    };
+    
+    int app_count = sizeof(apps) / sizeof(apps[0]);
+    int icon_size = 44;
+    int spacing = 8;
+    int total_width = app_count * icon_size + (app_count - 1) * spacing;
+    int start_x = (wm->taskbar->rect.width - total_width) / 2;
+    int start_y = (wm->taskbar->rect.height - icon_size) / 2;
+    
+    for (int i = 0; i < app_count; i++) {
+        gui2_widget_t* app_icon = gui2_create_widget(GUI2_WIDGET_BUTTON, wm->taskbar);
+        if (app_icon) {
+            // Position relative to taskbar coordinates
+            int x = start_x + i * (icon_size + spacing);
+            int y = start_y;
+            gui2_set_rect(app_icon, x, y, icon_size, icon_size);
+            app_icon->bg_color = apps[i].color;
+            app_icon->border_width = 0;
+            gui2_set_visible(app_icon, true);
+            
+            // Set app index and event handler - store window manager directly
+            app_icon->user_data = wm;  // Store wm directly instead of index
+            gui2_set_event_handler(app_icon, wm2_app_icon_event_handler);
+            
+            // Store app index in a different way - use widget ID
+            app_icon->id = i;  // Use widget ID to store app index
+        }
+    }
+}
+
+// App window creation implementations
+static void wm2_create_finder_window(wm2_context_t* wm) {
+    if (!wm) return;
+    
+    gui2_window_t* window = wm2_create_window(wm, "Finder", 100, 100, 600, 400);
+    if (window) {
+        // Simple content - just set background color
+        window->root_widget->bg_color = gui2_make_color(245, 245, 247, 255);
+    }
+}
+
+static void wm2_create_terminal_window(wm2_context_t* wm) {
+    if (!wm) return;
+    
+    gui2_window_t* window = wm2_create_window(wm, "Terminal", 150, 150, 650, 450);
+    if (window) {
+        // Simple dark background
+        window->root_widget->bg_color = gui2_make_color(40, 44, 52, 255);
+    }
+}
+
+static void wm2_create_calculator_window(wm2_context_t* wm) {
+    if (!wm) return;
+    
+    gui2_window_t* window = wm2_create_window(wm, "Calculator", 200, 200, 320, 420);
+    if (window) {
+        // Simple light background
+        window->root_widget->bg_color = gui2_make_color(248, 248, 248, 255);
+    }
+}
+
+static void wm2_create_settings_window(wm2_context_t* wm) {
+    if (!wm) return;
+    
+    gui2_window_t* window = wm2_create_window(wm, "System Settings", 250, 150, 550, 450);
+    if (window) {
+        // Simple settings background
+        window->root_widget->bg_color = gui2_make_color(250, 250, 250, 255);
+    }
+}
+
+static void wm2_create_trash_window(wm2_context_t* wm) {
+    if (!wm) return;
+    
+    gui2_window_t* window = wm2_create_window(wm, "Trash", 300, 200, 500, 350);
+    if (window) {
+        // Simple trash background
+        window->root_widget->bg_color = gui2_make_color(248, 248, 248, 255);
+    }
 }

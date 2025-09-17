@@ -19,6 +19,220 @@ static void gui2_clear_rect(gui2_context_t* ctx, gui2_rect_t rect, gui2_color_t 
     }
 }
 
+static uint32_t gui2_blend_colors(uint32_t bg, uint32_t fg, uint8_t alpha) {
+    if (alpha == 0) return bg;
+    if (alpha == 255) return fg;
+    
+    uint8_t bg_r = (bg >> 16) & 0xFF;
+    uint8_t bg_g = (bg >> 8) & 0xFF;
+    uint8_t bg_b = bg & 0xFF;
+    
+    uint8_t fg_r = (fg >> 16) & 0xFF;
+    uint8_t fg_g = (fg >> 8) & 0xFF;
+    uint8_t fg_b = fg & 0xFF;
+    
+    uint8_t out_r = (fg_r * alpha + bg_r * (255 - alpha)) / 255;
+    uint8_t out_g = (fg_g * alpha + bg_g * (255 - alpha)) / 255;
+    uint8_t out_b = (fg_b * alpha + bg_b * (255 - alpha)) / 255;
+    
+    return (0xFF << 24) | (out_r << 16) | (out_g << 8) | out_b;
+}
+
+// Simple sqrt approximation for kernel
+static float sqrtf(float x) {
+    if (x <= 0) return 0;
+    float guess = x / 2;
+    for (int i = 0; i < 10; i++) {
+        guess = (guess + x / guess) / 2;
+    }
+    return guess;
+}
+
+static float gui2_distance_to_rounded_rect(float x, float y, gui2_rect_t rect, float radius) {
+    // Calculate distance from point to rounded rectangle
+    float rx = rect.x + radius;
+    float ry = rect.y + radius;
+    float rw = rect.width - 2 * radius;
+    float rh = rect.height - 2 * radius;
+    
+    float dx = 0, dy = 0;
+    
+    if (x < rx) dx = rx - x;
+    else if (x > rx + rw) dx = x - (rx + rw);
+    
+    if (y < ry) dy = ry - y;
+    else if (y > ry + rh) dy = y - (ry + rh);
+    
+    return sqrtf(dx * dx + dy * dy) - radius;
+}
+
+// Efficient rounded rect using pre-calculated corner masks
+void gui2_draw_rounded_rect(gui2_context_t* ctx, gui2_rect_t rect, gui2_color_t color, float radius) {
+    if (!ctx || !ctx->back_buffer || radius <= 0) {
+        gui2_clear_rect(ctx, rect, color);
+        return;
+    }
+    
+    int r = (int)radius;
+    uint32_t bg_color = (ctx->theme_bg.a << 24) | (ctx->theme_bg.r << 16) | (ctx->theme_bg.g << 8) | ctx->theme_bg.b;
+    uint32_t fg_color = (color.a << 24) | (color.r << 16) | (color.g << 8) | color.b;
+    
+    // Draw main rectangle
+    gui2_clear_rect(ctx, rect, color);
+    
+    // Optimized anti-aliasing - 2x2 sampling instead of 4x4
+    if (r > 0 && r < 20) {
+        for (int y = 0; y < r + 1; y++) {
+            for (int x = 0; x < r + 1; x++) {
+                // 2x2 sub-pixel sampling for lighter anti-aliasing
+                int coverage = 0;
+                for (int sy = 0; sy < 2; sy++) {
+                    for (int sx = 0; sx < 2; sx++) {
+                        int sample_x = x * 2 + sx;
+                        int sample_y = y * 2 + sy;
+                        int dx = r * 2 - sample_x;
+                        int dy = r * 2 - sample_y;
+                        
+                        if (dx * dx + dy * dy > (r * 2) * (r * 2)) {
+                            coverage++;
+                        }
+                    }
+                }
+                
+                if (coverage > 0) {
+                    uint8_t alpha = (coverage * 255) / 4;
+                    
+                    // Top-left corner
+                    int px = rect.x + x;
+                    int py = rect.y + y;
+                    if (px >= 0 && px < (int)ctx->screen_width && py >= 0 && py < (int)ctx->screen_height) {
+                        if (coverage == 4) {
+                            ctx->back_buffer[py * ctx->screen_width + px] = bg_color;
+                        } else {
+                            uint32_t existing = ctx->back_buffer[py * ctx->screen_width + px];
+                            ctx->back_buffer[py * ctx->screen_width + px] = gui2_blend_colors(existing, bg_color, alpha);
+                        }
+                    }
+                    
+                    // Top-right corner
+                    px = rect.x + rect.width - 1 - x;
+                    if (px >= 0 && px < (int)ctx->screen_width && py >= 0 && py < (int)ctx->screen_height) {
+                        if (coverage == 4) {
+                            ctx->back_buffer[py * ctx->screen_width + px] = bg_color;
+                        } else {
+                            uint32_t existing = ctx->back_buffer[py * ctx->screen_width + px];
+                            ctx->back_buffer[py * ctx->screen_width + px] = gui2_blend_colors(existing, bg_color, alpha);
+                        }
+                    }
+                    
+                    // Bottom-left corner
+                    px = rect.x + x;
+                    py = rect.y + rect.height - 1 - y;
+                    if (px >= 0 && px < (int)ctx->screen_width && py >= 0 && py < (int)ctx->screen_height) {
+                        if (coverage == 4) {
+                            ctx->back_buffer[py * ctx->screen_width + px] = bg_color;
+                        } else {
+                            uint32_t existing = ctx->back_buffer[py * ctx->screen_width + px];
+                            ctx->back_buffer[py * ctx->screen_width + px] = gui2_blend_colors(existing, bg_color, alpha);
+                        }
+                    }
+                    
+                    // Bottom-right corner
+                    px = rect.x + rect.width - 1 - x;
+                    if (px >= 0 && px < (int)ctx->screen_width && py >= 0 && py < (int)ctx->screen_height) {
+                        if (coverage == 4) {
+                            ctx->back_buffer[py * ctx->screen_width + px] = bg_color;
+                        } else {
+                            uint32_t existing = ctx->back_buffer[py * ctx->screen_width + px];
+                            ctx->back_buffer[py * ctx->screen_width + px] = gui2_blend_colors(existing, bg_color, alpha);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Optimized anti-aliased circles for traffic lights
+static void gui2_draw_circle(gui2_context_t* ctx, int32_t center_x, int32_t center_y, float radius, gui2_color_t color) {
+    if (!ctx || !ctx->back_buffer) return;
+    
+    uint32_t fg_color = (color.a << 24) | (color.r << 16) | (color.g << 8) | color.b;
+    int r = (int)radius;
+    
+    // Light anti-aliasing with 2x2 sampling
+    for (int y = center_y - r - 1; y <= center_y + r + 1; y++) {
+        for (int x = center_x - r - 1; x <= center_x + r + 1; x++) {
+            if (x >= 0 && x < (int)ctx->screen_width && y >= 0 && y < (int)ctx->screen_height) {
+                
+                // 2x2 sub-pixel sampling 
+                int coverage = 0;
+                for (int sy = 0; sy < 2; sy++) {
+                    for (int sx = 0; sx < 2; sx++) {
+                        int sample_x = x * 2 + sx;
+                        int sample_y = y * 2 + sy;
+                        int dx = sample_x - center_x * 2;
+                        int dy = sample_y - center_y * 2;
+                        int r2 = r * 2;
+                        
+                        if (dx * dx + dy * dy <= r2 * r2) {
+                            coverage++;
+                        }
+                    }
+                }
+                
+                if (coverage > 0) {
+                    if (coverage == 4) {
+                        // Fully inside
+                        ctx->back_buffer[y * ctx->screen_width + x] = fg_color;
+                    } else {
+                        // Anti-aliased edge
+                        uint8_t alpha = (coverage * 255) / 4;
+                        uint32_t existing = ctx->back_buffer[y * ctx->screen_width + x];
+                        ctx->back_buffer[y * ctx->screen_width + x] = gui2_blend_colors(existing, fg_color, alpha);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Titlebar with only top corners rounded  
+static void gui2_draw_titlebar_rounded(gui2_context_t* ctx, gui2_rect_t rect, gui2_color_t color, float radius) {
+    if (!ctx || !ctx->back_buffer) return;
+    
+    // Draw main rectangle first
+    gui2_clear_rect(ctx, rect, color);
+    
+    // Only round top corners if radius > 0
+    if (radius > 0) {
+        int r = (int)radius;
+        uint32_t bg_color = (ctx->theme_bg.a << 24) | (ctx->theme_bg.r << 16) | (ctx->theme_bg.g << 8) | ctx->theme_bg.b;
+        
+        // Simple corner cutting - only top corners
+        for (int y = 0; y < r; y++) {
+            for (int x = 0; x < r; x++) {
+                int dx = r - x;
+                int dy = r - y;
+                if (dx * dx + dy * dy > r * r) {
+                    // Top-left corner
+                    int px = rect.x + x;
+                    int py = rect.y + y;
+                    if (px >= 0 && px < (int)ctx->screen_width && py >= 0 && py < (int)ctx->screen_height) {
+                        ctx->back_buffer[py * ctx->screen_width + px] = bg_color;
+                    }
+                    
+                    // Top-right corner
+                    px = rect.x + rect.width - 1 - x;
+                    if (px >= 0 && px < (int)ctx->screen_width && py >= 0 && py < (int)ctx->screen_height) {
+                        ctx->back_buffer[py * ctx->screen_width + px] = bg_color;
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void gui2_draw_border(gui2_context_t* ctx, gui2_rect_t rect, gui2_color_t color, uint32_t width) {
     if (!ctx || !ctx->back_buffer || width == 0) return;
     
@@ -332,7 +546,46 @@ static void gui2_render_widget(gui2_context_t* ctx, gui2_widget_t* widget, int32
         widget->rect.height
     };
     
-    gui2_clear_rect(ctx, screen_rect, widget->bg_color);
+    // Special rendering for different widget types
+    float radius = 0.0f;
+    bool is_dock_icon = false;
+    
+    if (widget->type == GUI2_WIDGET_BUTTON) {
+        // Check if this is a dock icon (has parent panel with specific size)
+        if (widget->parent && widget->parent->type == GUI2_WIDGET_PANEL && 
+            widget->rect.width == 44 && widget->rect.height == 44) {
+            radius = 10.0f; // More rounded for dock icons
+            is_dock_icon = true;
+        } else {
+            radius = 6.0f;
+        }
+    } else if (widget->type == GUI2_WIDGET_PANEL) {
+        // Check if this is taskbar (floating dock)
+        if (widget->rect.height == 60 && widget->rect.width == 400) {
+            radius = 16.0f; // Very rounded for dock
+        } else {
+            radius = 4.0f;
+        }
+    }
+    
+    if (radius > 0) {
+        gui2_draw_rounded_rect(ctx, screen_rect, widget->bg_color, radius);
+        
+        // Add special dock icon effects
+        if (is_dock_icon) {
+            // Add subtle inner shadow/highlight
+            gui2_color_t highlight = gui2_make_color(255, 255, 255, 30);
+            gui2_rect_t highlight_rect = {
+                screen_rect.x + 1, 
+                screen_rect.y + 1, 
+                screen_rect.width - 2, 
+                screen_rect.height / 3
+            };
+            gui2_draw_rounded_rect(ctx, highlight_rect, highlight, radius - 2);
+        }
+    } else {
+        gui2_clear_rect(ctx, screen_rect, widget->bg_color);
+    }
     
     if (widget->border_width > 0) {
         gui2_draw_border(ctx, screen_rect, widget->border_color, widget->border_width);
@@ -356,24 +609,22 @@ static void gui2_render_window_titlebar(gui2_context_t* ctx, gui2_window_t* wind
     };
     
     gui2_color_t titlebar_color = (ctx->active_window == window) ?
-        gui2_make_color(60, 60, 60, 255) :
-        gui2_make_color(40, 40, 40, 255);
+        gui2_make_color(70, 70, 75, 255) :
+        gui2_make_color(50, 50, 55, 255);
     
-    gui2_clear_rect(ctx, titlebar_rect, titlebar_color);
+    // Draw titlebar with only top corners rounded
+    gui2_draw_titlebar_rounded(ctx, titlebar_rect, titlebar_color, 10.0f);
     
     if (window->closable) {
-        gui2_rect_t close_btn = {window->rect.x + 10, window->rect.y + 8, 14, 14};
-        gui2_clear_rect(ctx, close_btn, gui2_make_color(255, 95, 86, 255));
+        gui2_draw_circle(ctx, window->rect.x + 17, window->rect.y + 15, 7.0f, gui2_make_color(255, 95, 86, 255));
     }
     
     if (window->minimizable) {
-        gui2_rect_t min_btn = {window->rect.x + 30, window->rect.y + 8, 14, 14};
-        gui2_clear_rect(ctx, min_btn, gui2_make_color(255, 189, 46, 255));
+        gui2_draw_circle(ctx, window->rect.x + 37, window->rect.y + 15, 7.0f, gui2_make_color(255, 189, 46, 255));
     }
     
     if (window->resizable) {
-        gui2_rect_t max_btn = {window->rect.x + 50, window->rect.y + 8, 14, 14};
-        gui2_clear_rect(ctx, max_btn, gui2_make_color(39, 201, 63, 255));
+        gui2_draw_circle(ctx, window->rect.x + 57, window->rect.y + 15, 7.0f, gui2_make_color(39, 201, 63, 255));
     }
 }
 
@@ -443,17 +694,33 @@ void gui2_render(gui2_context_t* ctx) {
     // Clear back buffer
     gui2_clear_rect(ctx, gui2_make_rect(0, 0, ctx->screen_width, ctx->screen_height), ctx->theme_bg);
     
+    // Render desktop widgets first (like taskbar)
+    extern wm2_context_t* global_wm;
+    if (global_wm && global_wm->desktop && (global_wm->desktop->flags & GUI2_WIDGET_VISIBLE)) {
+        gui2_render_widget(ctx, global_wm->desktop, 0, 0);
+    }
+    
     // Render all windows to back buffer
     gui2_window_t* window = ctx->windows;
     while (window) {
-        gui2_render_window_titlebar(ctx, window);
-        
-        if (window->root_widget) {
-            gui2_render_widget(ctx, window->root_widget, window->rect.x, window->rect.y + 30);
+        if (window->flags & GUI2_WIDGET_VISIBLE) {
+            // Draw window background with nice rounded corners
+            gui2_draw_rounded_rect(ctx, window->rect, gui2_make_color(45, 45, 50, 255), 8.0f);
+            
+            // Draw titlebar
+            gui2_render_window_titlebar(ctx, window);
+            
+            // Draw window content
+            if (window->root_widget) {
+                gui2_render_widget(ctx, window->root_widget, window->rect.x, window->rect.y);
+            }
         }
         
         window = window->next;
     }
+    
+    // Draw cursor on top of everything
+    gui2_draw_cursor(ctx);
     
     // Swap buffers - copy back buffer to screen
     gui2_swap_buffers(ctx);
@@ -683,10 +950,10 @@ gui2_widget_t* gui2_create_panel(gui2_widget_t* parent) {
     return panel;
 }
 
-static wm2_context_t* global_wm = NULL;
-
 int gui2_main_loop(void) {
     extern video_driver_t* video_get_driver(void);
+    extern wm2_context_t* global_wm;
+    
     video_driver_t* driver = video_get_driver();
     if (!driver || !driver->framebuffer) {
         return 1;

@@ -243,4 +243,7 @@ gui2_widget_t* gui2_create_button(gui2_widget_t* parent, const char* text);
 gui2_widget_t* gui2_create_label(gui2_widget_t* parent, const char* text);
 gui2_widget_t* gui2_create_panel(gui2_widget_t* parent);
 
+// Advanced drawing functions
+void gui2_draw_rounded_rect(gui2_context_t* ctx, gui2_rect_t rect, gui2_color_t color, float radius);
+
 #endif // GUI2_H
