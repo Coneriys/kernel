@@ -9,7 +9,7 @@ LDFLAGS = -T linker.ld -ffreestanding -O2 -nostdlib -lgcc
 BUILD_DIR = build
 
 # Object files in build directory (GUI components removed, fonts kept, new GUI added)
-KERNEL_OBJS = $(BUILD_DIR)/boot.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/pmm.o $(BUILD_DIR)/heap.o $(BUILD_DIR)/elf.o $(BUILD_DIR)/paging.o $(BUILD_DIR)/paging_asm.o $(BUILD_DIR)/process.o $(BUILD_DIR)/interrupts.o $(BUILD_DIR)/interrupts_asm.o $(BUILD_DIR)/keyboard.o $(BUILD_DIR)/syscall.o $(BUILD_DIR)/scheduler.o $(BUILD_DIR)/bsh.o $(BUILD_DIR)/vfs.o $(BUILD_DIR)/hypr.o $(BUILD_DIR)/man.o $(BUILD_DIR)/net.o $(BUILD_DIR)/ip.o $(BUILD_DIR)/arp.o $(BUILD_DIR)/icmp.o $(BUILD_DIR)/udp.o $(BUILD_DIR)/tcp.o $(BUILD_DIR)/http.o $(BUILD_DIR)/dhcp.o $(BUILD_DIR)/mouse.o $(BUILD_DIR)/video.o $(BUILD_DIR)/pci.o $(BUILD_DIR)/amd_gpu.o $(BUILD_DIR)/usb.o $(BUILD_DIR)/hello_program.o $(BUILD_DIR)/math.o $(BUILD_DIR)/inter_font_data.o $(BUILD_DIR)/ft_kernel.o $(BUILD_DIR)/gui2.o $(BUILD_DIR)/wm2.o
+KERNEL_OBJS = $(BUILD_DIR)/boot.o $(BUILD_DIR)/kernel.o $(BUILD_DIR)/pmm.o $(BUILD_DIR)/heap.o $(BUILD_DIR)/elf.o $(BUILD_DIR)/paging.o $(BUILD_DIR)/paging_asm.o $(BUILD_DIR)/process.o $(BUILD_DIR)/interrupts.o $(BUILD_DIR)/interrupts_asm.o $(BUILD_DIR)/keyboard.o $(BUILD_DIR)/syscall.o $(BUILD_DIR)/scheduler.o $(BUILD_DIR)/bsh.o $(BUILD_DIR)/vfs.o $(BUILD_DIR)/hypr.o $(BUILD_DIR)/man.o $(BUILD_DIR)/net.o $(BUILD_DIR)/ip.o $(BUILD_DIR)/arp.o $(BUILD_DIR)/icmp.o $(BUILD_DIR)/udp.o $(BUILD_DIR)/tcp.o $(BUILD_DIR)/http.o $(BUILD_DIR)/dhcp.o $(BUILD_DIR)/mouse.o $(BUILD_DIR)/video.o $(BUILD_DIR)/pci.o $(BUILD_DIR)/amd_gpu.o $(BUILD_DIR)/usb.o $(BUILD_DIR)/hello_program.o $(BUILD_DIR)/math.o $(BUILD_DIR)/inter_font_data.o $(BUILD_DIR)/ft_kernel.o $(BUILD_DIR)/gui2.o $(BUILD_DIR)/wm2.o $(BUILD_DIR)/disk.o $(BUILD_DIR)/fat32.o $(BUILD_DIR)/installer.o
 
 all: $(BUILD_DIR) byteos.bin
 
@@ -69,6 +69,6 @@ clean:
 	cd userland && $(MAKE) clean
 
 test: byteos.bin
-	qemu-system-x86_64 -kernel byteos.bin -netdev user,id=net0 -device rtl8139,netdev=net0 -serial stdio
+	qemu-system-x86_64 -kernel byteos.bin -netdev user,id=net0 -device rtl8139,netdev=net0 -serial stdio -drive file=disk.img,format=raw,if=ide,index=0,media=disk
 
 .PHONY: all clean test

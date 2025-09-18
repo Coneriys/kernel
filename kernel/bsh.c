@@ -1,6 +1,9 @@
 // Simplified BSH for testing modern video/GUI system
 #include "../include/bsh.h"
 #include "../include/video.h"
+#include "../include/disk.h"
+#include "../include/fat32.h"
+#include "../include/installer.h"
 // GUI removed - will be rewritten
 
 extern void terminal_writestring(const char* data);
@@ -24,6 +27,9 @@ int cmd_video(const char* args);
 int cmd_exit(const char* args);
 int cmd_modern_font_demo(const char* args);
 int cmd_gui2(const char* args);
+int cmd_disks(const char* args);
+int cmd_format(const char* args);
+int cmd_install(const char* args);
 
 static simple_command_t commands[] = {
     {"help", "Show available commands", cmd_help},
@@ -31,6 +37,9 @@ static simple_command_t commands[] = {
     {"video", "Show video information", cmd_video},
     {"fontdemo", "Demonstrate modern SF Pro font system", cmd_modern_font_demo},
     {"gui2", "Launch new GUI system", cmd_gui2},
+    {"disks", "Show disk information", cmd_disks},
+    {"format", "Format disk with FAT32 (format 0)", cmd_format},
+    {"install", "Install ByteOS to disk (install 0)", cmd_install},
     {"exit", "Exit shell", cmd_exit},
     {NULL, NULL, NULL}
 };
@@ -263,4 +272,233 @@ int cmd_gui2(const char* args) {
     // Launch the new GUI system
     extern int gui2_main_loop(void);
     return gui2_main_loop();
+}
+
+int cmd_disks(const char* args) {
+    (void)args;
+    
+    terminal_writestring("Disk Information:\n");
+    terminal_writestring("=================\n");
+    
+    for (int i = 0; i < 4; i++) {
+        disk_info_t* disk = disk_get_info(i);
+        if (disk && disk->present) {
+            terminal_writestring("Disk ");
+            terminal_putchar('0' + i);
+            terminal_writestring(": ");
+            
+            // Show disk type
+            switch (disk->type) {
+                case DISK_TYPE_ATA_PATA:
+                    terminal_writestring("ATA/PATA ");
+                    break;
+                case DISK_TYPE_ATA_SATA:
+                    terminal_writestring("ATA/SATA ");
+                    break;
+                case DISK_TYPE_ATAPI:
+                    terminal_writestring("ATAPI ");
+                    break;
+                default:
+                    terminal_writestring("Unknown ");
+                    break;
+            }
+            
+            // Show capacity
+            uint64_t size_mb = (disk->sectors * disk->sector_size) / (1024 * 1024);
+            terminal_writestring("(");
+            // Simple number printing
+            char size_str[16];
+            int pos = 0;
+            uint64_t temp = size_mb;
+            if (temp == 0) {
+                size_str[pos++] = '0';
+            } else {
+                while (temp > 0) {
+                    size_str[pos++] = '0' + (temp % 10);
+                    temp /= 10;
+                }
+                // Reverse the string
+                for (int j = 0; j < pos / 2; j++) {
+                    char swap = size_str[j];
+                    size_str[j] = size_str[pos - 1 - j];
+                    size_str[pos - 1 - j] = swap;
+                }
+            }
+            size_str[pos] = '\0';
+            
+            terminal_writestring(size_str);
+            terminal_writestring(" MB)\n");
+            
+            // Show model if available
+            terminal_writestring("  Model: ");
+            // Print first 20 chars of model, trimming spaces
+            for (int j = 0; j < 20 && disk->model[j]; j++) {
+                if (disk->model[j] != ' ' || j == 0) {
+                    terminal_putchar(disk->model[j]);
+                }
+            }
+            terminal_writestring("\n");
+        }
+    }
+    
+    terminal_writestring("\nDisk detection completed.\n");
+    return 0;
+}
+
+int cmd_format(const char* args) {
+    (void)args;
+    
+    terminal_writestring("FAT32 Disk Formatter\n");
+    terminal_writestring("====================\n");
+    
+    // Simple argument parsing - just get disk number
+    int disk_id = 0;
+    if (args && *args >= '0' && *args <= '3') {
+        disk_id = *args - '0';
+    }
+    
+    // Check if disk exists
+    disk_info_t* disk = disk_get_info(disk_id);
+    if (!disk || !disk->present) {
+        terminal_writestring("Error: Disk ");
+        terminal_putchar('0' + disk_id);
+        terminal_writestring(" not found!\n");
+        return 1;
+    }
+    
+    // Show disk info
+    terminal_writestring("Formatting disk ");
+    terminal_putchar('0' + disk_id);
+    terminal_writestring(":\n");
+    
+    uint64_t size_mb = (disk->sectors * disk->sector_size) / (1024 * 1024);
+    terminal_writestring("  Size: ");
+    
+    // Print size
+    char size_str[16];
+    int pos = 0;
+    uint64_t temp = size_mb;
+    if (temp == 0) {
+        size_str[pos++] = '0';
+    } else {
+        while (temp > 0) {
+            size_str[pos++] = '0' + (temp % 10);
+            temp /= 10;
+        }
+        // Reverse the string
+        for (int j = 0; j < pos / 2; j++) {
+            char swap = size_str[j];
+            size_str[j] = size_str[pos - 1 - j];
+            size_str[pos - 1 - j] = swap;
+        }
+    }
+    size_str[pos] = '\0';
+    
+    terminal_writestring(size_str);
+    terminal_writestring(" MB\n");
+    
+    terminal_writestring("\nWarning: This will erase all data on the disk!\n");
+    terminal_writestring("Starting FAT32 format...\n");
+    
+    // Format the entire disk as FAT32
+    uint32_t start_sector = 0;
+    uint32_t total_sectors = (uint32_t)disk->sectors;
+    
+    if (fat32_format_disk(disk_id, start_sector, total_sectors, "ByteOS")) {
+        terminal_writestring("Format completed successfully!\n");
+        terminal_writestring("Filesystem: FAT32\n");
+        terminal_writestring("Volume label: ByteOS\n");
+        return 0;
+    } else {
+        terminal_writestring("Format failed!\n");
+        return 1;
+    }
+}
+
+int cmd_install(const char* args) {
+    (void)args;
+    
+    terminal_writestring("ByteOS System Installer\n");
+    terminal_writestring("=======================\n");
+    
+    // Parse disk argument
+    int disk_id = 0;
+    if (args && *args >= '0' && *args <= '3') {
+        disk_id = *args - '0';
+    }
+    
+    // Check if disk exists
+    disk_info_t* disk = disk_get_info(disk_id);
+    if (!disk || !disk->present) {
+        terminal_writestring("Error: Disk ");
+        terminal_putchar('0' + disk_id);
+        terminal_writestring(" not found!\n");
+        return 1;
+    }
+    
+    // Show disk info
+    terminal_writestring("Installing ByteOS to disk ");
+    terminal_putchar('0' + disk_id);
+    terminal_writestring(":\n");
+    
+    uint64_t size_mb = (disk->sectors * disk->sector_size) / (1024 * 1024);
+    terminal_writestring("  Size: ");
+    
+    // Print size
+    char size_str[16];
+    int pos = 0;
+    uint64_t temp = size_mb;
+    if (temp == 0) {
+        size_str[pos++] = '0';
+    } else {
+        while (temp > 0) {
+            size_str[pos++] = '0' + (temp % 10);
+            temp /= 10;
+        }
+        // Reverse the string
+        for (int j = 0; j < pos / 2; j++) {
+            char swap = size_str[j];
+            size_str[j] = size_str[pos - 1 - j];
+            size_str[pos - 1 - j] = swap;
+        }
+    }
+    size_str[pos] = '\0';
+    
+    terminal_writestring(size_str);
+    terminal_writestring(" MB\n\n");
+    
+    // Initialize installer
+    if (!installer_init()) {
+        terminal_writestring("Error: Failed to initialize installer\n");
+        return 1;
+    }
+    
+    // Setup installation config
+    install_config_t config = {0};
+    config.target_disk = disk_id;
+    config.volume_label = "ByteOS";
+    config.files = NULL;
+    config.file_count = 0;
+    
+    terminal_writestring("Warning: This will erase all data on the disk!\n");
+    terminal_writestring("Starting installation...\n\n");
+    
+    // Start installation
+    if (installer_start(&config)) {
+        terminal_writestring("Installation completed successfully!\n");
+        terminal_writestring("System Status:\n");
+        terminal_writestring("  Filesystem: FAT32\n");
+        terminal_writestring("  Bootloader: Installed\n");
+        terminal_writestring("  Kernel: Installed\n");
+        terminal_writestring("  System Files: Installed\n");
+        terminal_writestring("\nByteOS is ready to boot from disk ");
+        terminal_putchar('0' + disk_id);
+        terminal_writestring("!\n");
+        return 0;
+    } else {
+        terminal_writestring("Installation failed: ");
+        terminal_writestring(installer_get_status_message());
+        terminal_writestring("\n");
+        return 1;
+    }
 }

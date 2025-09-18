@@ -21,6 +21,8 @@
 #include "../include/video.h"
 #include "../include/tcp.h"
 #include "../include/usb.h"
+#include "../include/disk.h"
+#include "../include/installer.h"
 // GUI components disabled for rewrite
 //#include "../include/sdk.h"
 //#include "../include/gui.h"
@@ -217,6 +219,14 @@ void kernel_main(multiboot_info_t* mbi) {
         process_init();
         scheduler_init();
         vfs_init();
+        
+        // Initialize disk subsystem
+        serial_writestring("byteOS: Initializing disk subsystem\n");
+        if (disk_init()) {
+            serial_writestring("byteOS: Disk subsystem initialized successfully\n");
+        } else {
+            serial_writestring("byteOS: Warning - No disks detected\n");
+        }
         
         terminal_setcolor(vga_entry_color(VGA_COLOR_LIGHT_GREEN, VGA_COLOR_BLACK));
         terminal_writestring("Keyboard, interrupts and syscalls enabled!\n");

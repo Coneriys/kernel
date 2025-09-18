@@ -2,6 +2,7 @@
 *.o
 *.bin
 *.elf
+*.img
 byteos.bin
 
 # Generated files

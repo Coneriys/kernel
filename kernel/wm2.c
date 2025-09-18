@@ -308,6 +308,10 @@ void wm2_handle_mouse_button(wm2_context_t* wm, uint32_t button, bool pressed) {
                     wm->drag_offset_y = y - window->rect.y;
                     return;
                 }
+                
+                // Always pass events to GUI system for widget handling
+                gui2_mouse_button(wm->gui, button, pressed);
+                return;
             }
         } else {
             // Stop dragging
@@ -395,7 +399,7 @@ static void wm2_app_icon_event_handler(gui2_widget_t* widget, gui2_event_t* even
 static void wm2_taskbar_event_handler(gui2_widget_t* widget, gui2_event_t* event) {
     (void)widget;
     (void)event;
-    // Main taskbar doesn't handle events, individual app icons do
+    // Taskbar doesn't handle events directly - child widgets (icons) do
 }
 
 static void wm2_window_event_handler(gui2_widget_t* widget, gui2_event_t* event) {
@@ -409,7 +413,7 @@ static void wm2_create_finder_window(wm2_context_t* wm);
 static void wm2_create_terminal_window(wm2_context_t* wm);
 static void wm2_create_calculator_window(wm2_context_t* wm);
 static void wm2_create_settings_window(wm2_context_t* wm);
-static void wm2_create_trash_window(wm2_context_t* wm);
+static void wm2_create_installer_window(wm2_context_t* wm);
 
 static void wm2_app_icon_event_handler(gui2_widget_t* widget, gui2_event_t* event) {
     if (!widget || !event) return;
@@ -418,26 +422,28 @@ static void wm2_app_icon_event_handler(gui2_widget_t* widget, gui2_event_t* even
     wm2_context_t* wm = (wm2_context_t*)widget->user_data;
     if (!wm) return;
     
-    // Get app index from widget ID
-    int app_index = (int)widget->id;
-    
-    // Handle mouse down event
+    // Handle mouse down event only (not mouse up to avoid double creation)
     if (event->type == GUI2_EVENT_MOUSE_DOWN) {
-        // Create test window based on app index
-        const char* titles[] = {"Finder", "Terminal", "Calculator", "Settings", "Trash"};
-        gui2_color_t colors[] = {
-            gui2_make_color(245, 245, 247, 255), // Finder - light
-            gui2_make_color(40, 44, 52, 255),    // Terminal - dark
-            gui2_make_color(248, 248, 248, 255), // Calculator - light
-            gui2_make_color(250, 250, 250, 255), // Settings - light
-            gui2_make_color(248, 248, 248, 255)  // Trash - light
-        };
+        // Get app index from widget ID
+        int app_index = (int)widget->id;
         
-        if (app_index >= 0 && app_index < 5) {
-            gui2_window_t* window = wm2_create_window(wm, titles[app_index], 100 + app_index * 50, 100 + app_index * 50, 400, 300);
-            if (window) {
-                window->root_widget->bg_color = colors[app_index];
-            }
+        // Create appropriate window based on app index
+        switch (app_index) {
+            case 0: // Finder
+                wm2_create_finder_window(wm);
+                break;
+            case 1: // Terminal
+                wm2_create_terminal_window(wm);
+                break;
+            case 2: // Calculator
+                wm2_create_calculator_window(wm);
+                break;
+            case 3: // Settings
+                wm2_create_settings_window(wm);
+                break;
+            case 4: // Installer
+                wm2_create_installer_window(wm);
+                break;
         }
     }
 }
@@ -477,7 +483,7 @@ static void wm2_add_taskbar_apps(wm2_context_t* wm) {
         {"Terminal", gui2_make_color(50, 50, 55, 255)},     // Dark gray
         {"Calculator", gui2_make_color(255, 149, 0, 255)},  // Orange
         {"Settings", gui2_make_color(142, 142, 147, 255)},  // Gray
-        {"Trash", gui2_make_color(255, 59, 48, 255)}        // Red
+        {"Installer", gui2_make_color(76, 175, 80, 255)}    // Green
     };
     
     int app_count = sizeof(apps) / sizeof(apps[0]);
@@ -549,12 +555,105 @@ static void wm2_create_settings_window(wm2_context_t* wm) {
     }
 }
 
-static void wm2_create_trash_window(wm2_context_t* wm) {
+static void wm2_create_installer_window(wm2_context_t* wm) {
     if (!wm) return;
     
-    gui2_window_t* window = wm2_create_window(wm, "Trash", 300, 200, 500, 350);
+    gui2_window_t* window = wm2_create_window(wm, "ByteOS System Installer", 200, 100, 720, 550);
     if (window) {
-        // Simple trash background
-        window->root_widget->bg_color = gui2_make_color(248, 248, 248, 255);
+        // Set installer background
+        window->root_widget->bg_color = gui2_make_color(245, 245, 247, 255);
+        
+        // Header section with OS logo/icon area
+        gui2_widget_t* header = gui2_create_label(window->root_widget, "ByteOS Installation");
+        gui2_set_rect(header, 20, 20, 680, 35);
+        header->bg_color = gui2_make_color(245, 245, 247, 255);
+        header->fg_color = gui2_make_color(34, 34, 34, 255);
+        
+        // System info section
+        gui2_widget_t* sys_info = gui2_create_panel(window->root_widget);
+        gui2_set_rect(sys_info, 20, 70, 680, 140);
+        sys_info->bg_color = gui2_make_color(255, 255, 255, 255);
+        sys_info->border_width = 1;
+        sys_info->border_color = gui2_make_color(200, 200, 200, 255);
+        
+        gui2_widget_t* os_name = gui2_create_label(sys_info, "Operating System: ByteOS v1.0.0");
+        gui2_set_rect(os_name, 15, 15, 650, 25);
+        os_name->bg_color = gui2_make_color(255, 255, 255, 255);
+        os_name->fg_color = gui2_make_color(51, 51, 51, 255);
+        
+        gui2_widget_t* target_disk = gui2_create_label(sys_info, "Target Disk: /dev/sda1 (Primary HDD - 250 GB available)");
+        gui2_set_rect(target_disk, 15, 45, 650, 20);
+        target_disk->bg_color = gui2_make_color(255, 255, 255, 255);
+        target_disk->fg_color = gui2_make_color(102, 102, 102, 255);
+        
+        gui2_widget_t* install_type = gui2_create_label(sys_info, "Installation Type: Full System Installation");
+        gui2_set_rect(install_type, 15, 70, 650, 20);
+        install_type->bg_color = gui2_make_color(255, 255, 255, 255);
+        install_type->fg_color = gui2_make_color(102, 102, 102, 255);
+        
+        gui2_widget_t* requirements = gui2_create_label(sys_info, "Requirements: 512 MB RAM, 2 GB Disk Space");
+        gui2_set_rect(requirements, 15, 95, 650, 20);
+        requirements->bg_color = gui2_make_color(255, 255, 255, 255);
+        requirements->fg_color = gui2_make_color(102, 102, 102, 255);
+        
+        // Progress section
+        gui2_widget_t* progress_label = gui2_create_label(window->root_widget, "Installation Progress:");
+        gui2_set_rect(progress_label, 20, 230, 400, 25);
+        progress_label->bg_color = gui2_make_color(245, 245, 247, 255);
+        progress_label->fg_color = gui2_make_color(34, 34, 34, 255);
+        
+        // Progress bar background
+        gui2_widget_t* progress_bg = gui2_create_panel(window->root_widget);
+        gui2_set_rect(progress_bg, 20, 260, 680, 35);
+        progress_bg->bg_color = gui2_make_color(230, 230, 230, 255);
+        progress_bg->border_width = 1;
+        progress_bg->border_color = gui2_make_color(180, 180, 180, 255);
+        
+        // Progress bar fill (60% complete)
+        gui2_widget_t* progress_fill = gui2_create_panel(progress_bg);
+        gui2_set_rect(progress_fill, 2, 2, 408, 31); // 60% of 680px = 408px
+        progress_fill->bg_color = gui2_make_color(0, 122, 255, 255);
+        
+        // Current step indicator
+        gui2_widget_t* status = gui2_create_label(window->root_widget, "Step 3 of 5: Installing system kernel...");
+        gui2_set_rect(status, 20, 305, 600, 25);
+        status->bg_color = gui2_make_color(245, 245, 247, 255);
+        status->fg_color = gui2_make_color(102, 102, 102, 255);
+        
+        // Current file being installed
+        gui2_widget_t* current_file = gui2_create_label(window->root_widget, "Installing: /boot/kernel.bin");
+        gui2_set_rect(current_file, 20, 335, 600, 20);
+        current_file->bg_color = gui2_make_color(245, 245, 247, 255);
+        current_file->fg_color = gui2_make_color(0, 122, 255, 255);
+        
+        // Installation log section
+        gui2_widget_t* log_label = gui2_create_label(window->root_widget, "Installation Log:");
+        gui2_set_rect(log_label, 20, 365, 200, 25);
+        log_label->bg_color = gui2_make_color(245, 245, 247, 255);
+        log_label->fg_color = gui2_make_color(34, 34, 34, 255);
+        
+        gui2_widget_t* log_area = gui2_create_panel(window->root_widget);
+        gui2_set_rect(log_area, 20, 395, 680, 70);
+        log_area->bg_color = gui2_make_color(20, 20, 25, 255);
+        log_area->border_width = 1;
+        log_area->border_color = gui2_make_color(200, 200, 200, 255);
+        
+        gui2_widget_t* log_text = gui2_create_label(log_area, 
+            "[14:23:15] Partitioning disk /dev/sda1...\n"
+            "[14:23:18] Creating filesystem ext4...\n"
+            "[14:23:22] Copying bootloader...");
+        gui2_set_rect(log_text, 10, 5, 660, 45);
+        log_text->fg_color = gui2_make_color(0, 255, 100, 255);
+        
+        // Installation buttons
+        gui2_widget_t* cancel_btn = gui2_create_button(window->root_widget, "Cancel");
+        gui2_set_rect(cancel_btn, 520, 480, 80, 35);
+        cancel_btn->bg_color = gui2_make_color(220, 220, 220, 255);
+        cancel_btn->fg_color = gui2_make_color(34, 34, 34, 255);
+        
+        gui2_widget_t* next_btn = gui2_create_button(window->root_widget, "Continue");
+        gui2_set_rect(next_btn, 610, 480, 90, 35);
+        next_btn->bg_color = gui2_make_color(0, 122, 255, 255);
+        next_btn->fg_color = gui2_make_color(255, 255, 255, 255);
     }
 }
